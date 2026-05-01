@@ -38,7 +38,6 @@ Python プロジェクトの古い `.venv` を一括削除するターミナル 
 | ファイル | 対象 |
 |---|---|
 | `UVCleaner-macos-arm64.tar.gz` | macOS (Apple Silicon) |
-| `UVCleaner-macos-x86_64.tar.gz` | macOS (Intel) |
 | `UVCleaner-linux-x86_64.tar.gz` | Linux x86_64 (静的バイナリ) |
 | `UVCleaner-windows-x86_64.zip` | Windows x86_64 |
 
