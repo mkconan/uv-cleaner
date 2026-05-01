@@ -41,26 +41,44 @@ impl App {
 
     pub fn delete_selected(&mut self) {
         let mut errors = vec![];
+        let mut success_count = 0;
+
         self.items.retain(|p| {
             if p.selected {
-                if let Err(e) = fs::remove_dir_all(&p.venv_path) {
-                    errors.push(format!("{}: {}", p.venv_path.display(), e));
+                match fs::remove_dir_all(&p.venv_path) {
+                    Ok(_) => {
+                        success_count += 1;
+                    }
+                    Err(e) => {
+                        errors.push((p.venv_path.display().to_string(), e.to_string()));
+                    }
                 }
                 false
             } else {
                 true
             }
         });
+
         if self.index >= self.items.len() && self.index > 0 {
             self.index -= 1;
         }
         if self.scroll_offset > self.index {
             self.scroll_offset = self.index;
         }
+
         self.last_error = if errors.is_empty() {
             None
         } else {
-            Some(errors.join("; "))
+            let error_summary = if errors.len() <= 2 {
+                errors
+                    .iter()
+                    .map(|(path, err)| format!("{}: {}", path, err))
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            } else {
+                format!("{} failed, {} succeeded", errors.len(), success_count)
+            };
+            Some(error_summary)
         };
     }
 
@@ -87,14 +105,21 @@ impl App {
                     }
                 } else {
                     let path = PathBuf::from(&self.input);
-                    self.items = scan_projects(&path, SCAN_DAYS);
-                    self.index = 0;
-                    self.scroll_offset = 0;
-                    self.confirm = false;
-                    self.input_mode = false;
-                    self.suggestions = vec![];
-                    self.suggestion_index = None;
-                    self.last_error = None;
+                    match scan_projects(&path, SCAN_DAYS) {
+                        Ok(projects) => {
+                            self.items = projects;
+                            self.index = 0;
+                            self.scroll_offset = 0;
+                            self.confirm = false;
+                            self.input_mode = false;
+                            self.suggestions = vec![];
+                            self.suggestion_index = None;
+                            self.last_error = None;
+                        }
+                        Err(e) => {
+                            self.last_error = Some(format!("Scan error: {}", e));
+                        }
+                    }
                 }
             }
             KeyCode::Esc => {

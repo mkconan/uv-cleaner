@@ -10,6 +10,7 @@ dependencies = [
  "crossterm",
  "dirs-next",
  "ratatui",
+ "thiserror 1.0.69",
  "walkdir",
 ]
 

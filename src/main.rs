@@ -14,12 +14,20 @@ use ratatui::{Terminal, backend::CrosstermBackend};
 
 use scanner::{SCAN_DAYS, scan_projects};
 
-fn main() -> Result<(), io::Error> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let root = dirs_next::home_dir()
-        .unwrap_or_default()
+        .ok_or("Could not determine home directory")?
         .join("Development");
+
+    if !root.exists() {
+        eprintln!("Warning: {} does not exist", root.display());
+    }
+
     let root_str = root.to_string_lossy().to_string();
-    let projects = scan_projects(&root, SCAN_DAYS);
+    let projects = scan_projects(&root, SCAN_DAYS).unwrap_or_else(|e| {
+        eprintln!("Scan error: {}", e);
+        vec![]
+    });
 
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -27,11 +35,11 @@ fn main() -> Result<(), io::Error> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let res = app::run_app(&mut terminal, projects, root_str);
+    app::run_app(&mut terminal, projects, root_str)?;
 
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
     terminal.show_cursor()?;
 
-    res
+    Ok(())
 }
