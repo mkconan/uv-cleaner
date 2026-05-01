@@ -15,15 +15,20 @@ use ratatui::{
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout},
     style::{Color, Style},
+    text::{Line, Span, Text},
     widgets::{Block, Borders, List, ListItem, Paragraph},
 };
 use walkdir::WalkDir;
+
+const BAR_WIDTH: usize = 20;
+const MB: u64 = 1024 * 1024;
 
 #[derive(Clone)]
 struct Project {
     path: PathBuf,
     venv_path: PathBuf,
     last_modified: SystemTime,
+    venv_size: u64,
     selected: bool,
 }
 
@@ -31,10 +36,13 @@ struct App {
     items: Vec<Project>,
     index: usize,
     confirm: bool,
+    input: String,
+    input_mode: bool,
 }
 
 fn main() -> Result<(), io::Error> {
-    let root = dirs_next::home_dir().unwrap().join("Development"); // 好きに変えてOK
+    let root = dirs_next::home_dir().unwrap().join("Development");
+    let root_str = root.to_string_lossy().to_string();
     let projects = scan_projects(&root, 30);
 
     enable_raw_mode()?;
@@ -43,13 +51,23 @@ fn main() -> Result<(), io::Error> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let res = run_app(&mut terminal, projects);
+    let res = run_app(&mut terminal, projects, root_str);
 
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
     terminal.show_cursor()?;
 
     res
+}
+
+fn dir_size(path: &Path) -> u64 {
+    WalkDir::new(path)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().is_file())
+        .filter_map(|e| e.metadata().ok())
+        .map(|m| m.len())
+        .sum()
 }
 
 fn scan_projects(root: &Path, days: u64) -> Vec<Project> {
@@ -65,10 +83,12 @@ fn scan_projects(root: &Path, days: u64) -> Vec<Project> {
                 if let Ok(meta) = fs::metadata(&venv) {
                     if let Ok(mtime) = meta.modified() {
                         if mtime < threshold {
+                            let venv_size = dir_size(&venv);
                             projects.push(Project {
                                 path: project_dir.to_path_buf(),
                                 venv_path: venv,
                                 last_modified: mtime,
+                                venv_size,
                                 selected: false,
                             });
                         }
@@ -84,11 +104,14 @@ fn scan_projects(root: &Path, days: u64) -> Vec<Project> {
 fn run_app(
     terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
     items: Vec<Project>,
+    root: String,
 ) -> io::Result<()> {
     let mut app = App {
         items,
         index: 0,
         confirm: false,
+        input: root,
+        input_mode: false,
     };
 
     loop {
@@ -96,44 +119,70 @@ fn run_app(
 
         if event::poll(Duration::from_millis(200))? {
             if let Event::Key(key) = event::read()? {
-                match key.code {
-                    KeyCode::Char('q') => return Ok(()),
-
-                    KeyCode::Down => {
-                        if app.index + 1 < app.items.len() {
-                            app.index += 1;
+                if app.input_mode {
+                    match key.code {
+                        KeyCode::Enter => {
+                            let path = PathBuf::from(&app.input);
+                            app.items = scan_projects(&path, 30);
+                            app.index = 0;
+                            app.confirm = false;
+                            app.input_mode = false;
                         }
-                    }
-                    KeyCode::Up => {
-                        if app.index > 0 {
-                            app.index -= 1;
+                        KeyCode::Esc => {
+                            app.input_mode = false;
                         }
-                    }
-
-                    KeyCode::Char(' ') => {
-                        if let Some(p) = app.items.get_mut(app.index) {
-                            p.selected = !p.selected;
+                        KeyCode::Backspace => {
+                            app.input.pop();
                         }
-                    }
-
-                    KeyCode::Char('d') => {
-                        if app.selected_count() > 0 {
-                            app.confirm = true;
+                        KeyCode::Char(c) => {
+                            app.input.push(c);
                         }
+                        _ => {}
                     }
+                } else {
+                    match key.code {
+                        KeyCode::Char('q') => return Ok(()),
 
-                    KeyCode::Char('y') => {
-                        if app.confirm {
-                            delete_selected(&mut app);
+                        KeyCode::Tab => {
+                            app.input_mode = true;
+                        }
+
+                        KeyCode::Down => {
+                            if app.index + 1 < app.items.len() {
+                                app.index += 1;
+                            }
+                        }
+                        KeyCode::Up => {
+                            if app.index > 0 {
+                                app.index -= 1;
+                            }
+                        }
+
+                        KeyCode::Char(' ') => {
+                            if let Some(p) = app.items.get_mut(app.index) {
+                                p.selected = !p.selected;
+                            }
+                        }
+
+                        KeyCode::Char('d') => {
+                            if app.selected_count() > 0 {
+                                app.confirm = true;
+                            }
+                        }
+
+                        KeyCode::Char('y') => {
+                            if app.confirm {
+                                delete_selected(&mut app);
+                                app.confirm = false;
+                            }
+                        }
+
+                        KeyCode::Char('n') => {
                             app.confirm = false;
                         }
-                    }
 
-                    KeyCode::Char('n') => {
-                        app.confirm = false;
+                        _ => {}
                     }
-
-                    _ => {}
                 }
             }
         }
@@ -155,11 +204,63 @@ fn delete_selected(app: &mut App) {
     }
 }
 
+fn size_label(bytes: u64) -> String {
+    if bytes >= 1024 * MB {
+        format!("{:.2} GB", bytes as f64 / (1024.0 * MB as f64))
+    } else if bytes >= MB {
+        format!("{:.1} MB", bytes as f64 / MB as f64)
+    } else {
+        format!("{} KB", bytes / 1024)
+    }
+}
+
+fn bar_color(size: u64) -> Color {
+    if size >= 500 * MB {
+        Color::Red
+    } else if size >= 100 * MB {
+        Color::Yellow
+    } else {
+        Color::Green
+    }
+}
+
 fn ui(f: &mut ratatui::Frame, app: &App) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Min(1), Constraint::Length(3)])
+        .constraints([
+            Constraint::Length(3),
+            Constraint::Min(1),
+            Constraint::Length(3),
+        ])
         .split(f.area());
+
+    // --- パス入力欄 ---
+    let input_border_style = if app.input_mode {
+        Style::default().fg(Color::Yellow)
+    } else {
+        Style::default()
+    };
+    let input_title = if app.input_mode {
+        "Scan root  [Enter: scan  Esc: cancel]"
+    } else {
+        "Scan root  [Tab: edit]"
+    };
+    let input_widget = Paragraph::new(app.input.as_str()).block(
+        Block::default()
+            .title(input_title)
+            .borders(Borders::ALL)
+            .border_style(input_border_style),
+    );
+    f.render_widget(input_widget, chunks[0]);
+
+    // --- プロジェクトリスト ---
+    let max_size = app
+        .items
+        .iter()
+        .map(|p| p.venv_size)
+        .max()
+        .unwrap_or(1)
+        .max(1);
 
     let items: Vec<ListItem> = app
         .items
@@ -167,22 +268,34 @@ fn ui(f: &mut ratatui::Frame, app: &App) {
         .enumerate()
         .map(|(i, p)| {
             let checkbox = if p.selected { "[x]" } else { "[ ]" };
-
             let dt: DateTime<Local> = p.last_modified.into();
-            let text = format!(
+            let header = format!(
                 "{} {} ({})",
                 checkbox,
                 p.path.display(),
                 dt.format("%Y-%m-%d")
             );
 
-            let style = if i == app.index {
+            let row_style = if i == app.index {
                 Style::default().fg(Color::Yellow)
             } else {
                 Style::default()
             };
 
-            ListItem::new(text).style(style)
+            let filled = (p.venv_size * BAR_WIDTH as u64 / max_size) as usize;
+            let unfilled = BAR_WIDTH - filled;
+            let color = bar_color(p.venv_size);
+
+            let bar_line = Line::from(vec![
+                Span::raw("    "),
+                Span::styled("█".repeat(filled), Style::default().fg(color)),
+                Span::styled("░".repeat(unfilled), Style::default().fg(Color::DarkGray)),
+                Span::raw(format!("  {}", size_label(p.venv_size))),
+            ]);
+
+            let text = Text::from(vec![Line::from(Span::styled(header, row_style)), bar_line]);
+
+            ListItem::new(text)
         })
         .collect();
 
@@ -192,17 +305,19 @@ fn ui(f: &mut ratatui::Frame, app: &App) {
             .borders(Borders::ALL),
     );
 
-    f.render_widget(list, chunks[0]);
+    f.render_widget(list, chunks[1]);
 
+    // --- フッター ---
     let help = if app.confirm {
         format!("Delete {} items? (y/n)", app.selected_count())
+    } else if app.input_mode {
+        "Type path  Enter: scan  Esc: cancel".to_string()
     } else {
-        "↑↓: move  space: select  d: delete  q: quit".to_string()
+        "↑↓: move  Space: select  d: delete  Tab: edit path  q: quit".to_string()
     };
 
     let footer = Paragraph::new(help).block(Block::default().borders(Borders::ALL));
-
-    f.render_widget(footer, chunks[1]);
+    f.render_widget(footer, chunks[2]);
 }
 
 impl App {
