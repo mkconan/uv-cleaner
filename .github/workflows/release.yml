@@ -21,10 +21,6 @@ jobs:
             os: macos-latest
             archive: UVCleaner-macos-arm64.tar.gz
 
-          - target: x86_64-apple-darwin
-            os: macos-13
-            archive: UVCleaner-macos-x86_64.tar.gz
-
           - target: x86_64-unknown-linux-musl
             os: ubuntu-latest
             archive: UVCleaner-linux-x86_64.tar.gz
