@@ -13,10 +13,10 @@ use crossterm::{
 use ratatui::{
     Terminal,
     backend::CrosstermBackend,
-    layout::{Constraint, Direction, Layout},
-    style::{Color, Style},
+    layout::{Constraint, Direction, Layout, Rect},
+    style::{Color, Modifier, Style},
     text::{Line, Span, Text},
-    widgets::{Block, Borders, List, ListItem, Paragraph},
+    widgets::{Block, Borders, Clear, List, ListItem, Paragraph},
 };
 use walkdir::WalkDir;
 
@@ -38,6 +38,8 @@ struct App {
     confirm: bool,
     input: String,
     input_mode: bool,
+    suggestions: Vec<String>,
+    suggestion_index: Option<usize>,
 }
 
 fn main() -> Result<(), io::Error> {
@@ -70,6 +72,34 @@ fn dir_size(path: &Path) -> u64 {
         .sum()
 }
 
+fn project_last_modified(project_dir: &Path) -> SystemTime {
+    let skip_dirs = [
+        ".git",
+        ".venv",
+        "__pycache__",
+        "node_modules",
+        "target",
+        ".tox",
+        ".mypy_cache",
+        ".pytest_cache",
+    ];
+    WalkDir::new(project_dir)
+        .into_iter()
+        .filter_entry(|e| {
+            if e.file_type().is_dir() {
+                let name = e.file_name().to_string_lossy();
+                !skip_dirs.iter().any(|s| name == *s)
+            } else {
+                true
+            }
+        })
+        .filter_map(|e| e.ok())
+        .filter_map(|e| e.metadata().ok())
+        .filter_map(|m| m.modified().ok())
+        .max()
+        .unwrap_or(SystemTime::UNIX_EPOCH)
+}
+
 fn scan_projects(root: &Path, days: u64) -> Vec<Project> {
     let mut projects = vec![];
     let threshold = SystemTime::now() - Duration::from_secs(days * 86400);
@@ -81,13 +111,14 @@ fn scan_projects(root: &Path, days: u64) -> Vec<Project> {
 
             if venv.exists() {
                 if let Ok(meta) = fs::metadata(&venv) {
-                    if let Ok(mtime) = meta.modified() {
-                        if mtime < threshold {
+                    if let Ok(venv_mtime) = meta.modified() {
+                        if venv_mtime < threshold {
                             let venv_size = dir_size(&venv);
+                            let last_modified = project_last_modified(project_dir);
                             projects.push(Project {
                                 path: project_dir.to_path_buf(),
                                 venv_path: venv,
-                                last_modified: mtime,
+                                last_modified,
                                 venv_size,
                                 selected: false,
                             });
@@ -98,7 +129,60 @@ fn scan_projects(root: &Path, days: u64) -> Vec<Project> {
         }
     }
 
+    // 古い順（プロジェクト全体の最終更新日が古い順）にソート
+    projects.sort_by(|a, b| a.last_modified.cmp(&b.last_modified));
     projects
+}
+
+fn compute_suggestions(input: &str) -> Vec<String> {
+    let expanded = if input.starts_with('~') {
+        if let Some(home) = dirs_next::home_dir() {
+            home.to_string_lossy().to_string() + &input[1..]
+        } else {
+            input.to_string()
+        }
+    } else {
+        input.to_string()
+    };
+
+    let path = PathBuf::from(&expanded);
+    let (dir_to_list, prefix) = if expanded.ends_with('/') {
+        (path.clone(), String::new())
+    } else {
+        let parent = path
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| PathBuf::from("/"));
+        let file_name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default();
+        (parent, file_name)
+    };
+
+    let Ok(entries) = fs::read_dir(&dir_to_list) else {
+        return vec![];
+    };
+
+    let mut suggestions: Vec<String> = entries
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
+        .filter(|e| {
+            let name = e.file_name().to_string_lossy().to_string();
+            name.starts_with(&prefix)
+        })
+        .map(|e| {
+            let mut s = dir_to_list
+                .join(e.file_name())
+                .to_string_lossy()
+                .to_string();
+            s.push('/');
+            s
+        })
+        .collect();
+
+    suggestions.sort();
+    suggestions
 }
 
 fn run_app(
@@ -112,6 +196,8 @@ fn run_app(
         confirm: false,
         input: root,
         input_mode: false,
+        suggestions: vec![],
+        suggestion_index: None,
     };
 
     loop {
@@ -122,20 +208,62 @@ fn run_app(
                 if app.input_mode {
                     match key.code {
                         KeyCode::Enter => {
-                            let path = PathBuf::from(&app.input);
-                            app.items = scan_projects(&path, 30);
-                            app.index = 0;
-                            app.confirm = false;
-                            app.input_mode = false;
+                            if let Some(idx) = app.suggestion_index {
+                                // 補完候補を確定してさらに編集を続ける
+                                if let Some(s) = app.suggestions.get(idx) {
+                                    app.input = s.clone();
+                                    app.suggestions = compute_suggestions(&app.input);
+                                    app.suggestion_index = None;
+                                }
+                            } else {
+                                // パスでスキャン実行
+                                let path = PathBuf::from(&app.input);
+                                app.items = scan_projects(&path, 30);
+                                app.index = 0;
+                                app.confirm = false;
+                                app.input_mode = false;
+                                app.suggestions = vec![];
+                                app.suggestion_index = None;
+                            }
                         }
                         KeyCode::Esc => {
-                            app.input_mode = false;
+                            if app.suggestion_index.is_some() {
+                                app.suggestion_index = None;
+                            } else {
+                                app.input_mode = false;
+                                app.suggestions = vec![];
+                            }
                         }
                         KeyCode::Backspace => {
                             app.input.pop();
+                            app.suggestions = compute_suggestions(&app.input);
+                            app.suggestion_index = None;
+                        }
+                        KeyCode::Tab => {
+                            if !app.suggestions.is_empty() {
+                                app.suggestion_index = Some(match app.suggestion_index {
+                                    None => 0,
+                                    Some(i) => (i + 1) % app.suggestions.len(),
+                                });
+                            }
+                        }
+                        KeyCode::Down => {
+                            if !app.suggestions.is_empty() {
+                                app.suggestion_index = Some(match app.suggestion_index {
+                                    None => 0,
+                                    Some(i) => (i + 1).min(app.suggestions.len() - 1),
+                                });
+                            }
+                        }
+                        KeyCode::Up => {
+                            if let Some(i) = app.suggestion_index {
+                                app.suggestion_index = if i == 0 { None } else { Some(i - 1) };
+                            }
                         }
                         KeyCode::Char(c) => {
                             app.input.push(c);
+                            app.suggestions = compute_suggestions(&app.input);
+                            app.suggestion_index = None;
                         }
                         _ => {}
                     }
@@ -144,6 +272,8 @@ fn run_app(
                         KeyCode::Char('q') => return Ok(()),
 
                         KeyCode::Tab => {
+                            app.suggestions = compute_suggestions(&app.input);
+                            app.suggestion_index = None;
                             app.input_mode = true;
                         }
 
@@ -161,6 +291,13 @@ fn run_app(
                         KeyCode::Char(' ') => {
                             if let Some(p) = app.items.get_mut(app.index) {
                                 p.selected = !p.selected;
+                            }
+                        }
+
+                        KeyCode::Char('a') => {
+                            let all_selected = app.items.iter().all(|p| p.selected);
+                            for p in &mut app.items {
+                                p.selected = !all_selected;
                             }
                         }
 
@@ -236,12 +373,12 @@ fn ui(f: &mut ratatui::Frame, app: &App) {
 
     // --- パス入力欄 ---
     let input_border_style = if app.input_mode {
-        Style::default().fg(Color::Yellow)
+        Style::default().fg(Color::Cyan)
     } else {
         Style::default()
     };
     let input_title = if app.input_mode {
-        "Scan root  [Enter: scan  Esc: cancel]"
+        "Scan root  [Enter: apply/scan  Tab/↑↓: suggest  Esc: cancel]"
     } else {
         "Scan root  [Tab: edit]"
     };
@@ -262,6 +399,13 @@ fn ui(f: &mut ratatui::Frame, app: &App) {
         .unwrap_or(1)
         .max(1);
 
+    let selected_total: u64 = app
+        .items
+        .iter()
+        .filter(|p| p.selected)
+        .map(|p| p.venv_size)
+        .sum();
+
     let items: Vec<ListItem> = app
         .items
         .iter()
@@ -277,7 +421,9 @@ fn ui(f: &mut ratatui::Frame, app: &App) {
             );
 
             let row_style = if i == app.index {
-                Style::default().fg(Color::Yellow)
+                Style::default()
+                    .fg(Color::Magenta)
+                    .add_modifier(Modifier::BOLD)
             } else {
                 Style::default()
             };
@@ -299,25 +445,84 @@ fn ui(f: &mut ratatui::Frame, app: &App) {
         })
         .collect();
 
-    let list = List::new(items).block(
-        Block::default()
-            .title("uv venv cleaner")
-            .borders(Borders::ALL),
+    let list_title = format!(
+        "uv venv cleaner  [{}/{} selected  {}]",
+        app.selected_count(),
+        app.items.len(),
+        if selected_total > 0 {
+            format!("{} to free", size_label(selected_total))
+        } else {
+            "none selected".to_string()
+        }
     );
 
+    let list = List::new(items).block(Block::default().title(list_title).borders(Borders::ALL));
     f.render_widget(list, chunks[1]);
 
     // --- フッター ---
     let help = if app.confirm {
-        format!("Delete {} items? (y/n)", app.selected_count())
+        format!(
+            "Delete {} items ({})? (y/n)",
+            app.selected_count(),
+            size_label(
+                app.items
+                    .iter()
+                    .filter(|p| p.selected)
+                    .map(|p| p.venv_size)
+                    .sum()
+            )
+        )
     } else if app.input_mode {
-        "Type path  Enter: scan  Esc: cancel".to_string()
+        "Type path  Tab/↓: next suggest  ↑: prev  Enter: apply/scan  Esc: cancel".to_string()
     } else {
-        "↑↓: move  Space: select  d: delete  Tab: edit path  q: quit".to_string()
+        "↑↓: move  Space: select  a: all/none  d: delete  Tab: edit path  q: quit".to_string()
     };
 
     let footer = Paragraph::new(help).block(Block::default().borders(Borders::ALL));
     f.render_widget(footer, chunks[2]);
+
+    // --- 補完候補ポップアップ ---
+    if app.input_mode && !app.suggestions.is_empty() {
+        let popup_height = (app.suggestions.len() as u16 + 2).min(10);
+        let input_area = chunks[0];
+        let popup_area = Rect {
+            x: input_area.x,
+            y: input_area.y + input_area.height,
+            width: input_area.width,
+            height: popup_height,
+        };
+
+        let suggestion_items: Vec<ListItem> = app
+            .suggestions
+            .iter()
+            .enumerate()
+            .map(|(i, s)| {
+                let style = if Some(i) == app.suggestion_index {
+                    Style::default()
+                        .fg(Color::Black)
+                        .bg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(Color::Cyan)
+                };
+                let display = PathBuf::from(s)
+                    .file_name()
+                    .map(|n| format!("{}/", n.to_string_lossy()))
+                    .unwrap_or_else(|| s.clone());
+                ListItem::new(Line::from(Span::styled(display, style)))
+            })
+            .collect();
+
+        let suggestion_list = List::new(suggestion_items).block(
+            Block::default()
+                .title("Suggestions")
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Cyan)),
+        );
+
+        f.render_widget(Clear, popup_area);
+        f.render_widget(suggestion_list, popup_area);
+    }
 }
 
 impl App {
