@@ -1,7 +1,7 @@
 # UVCleaner
 
-[![CI](https://github.com/<YOUR_USERNAME>/UVCleaner/actions/workflows/ci.yml/badge.svg)](https://github.com/<YOUR_USERNAME>/UVCleaner/actions/workflows/ci.yml)
-[![Release](https://github.com/<YOUR_USERNAME>/UVCleaner/actions/workflows/release.yml/badge.svg)](https://github.com/<YOUR_USERNAME>/UVCleaner/releases/latest)
+[![CI](https://github.com/MkConan/UVCleaner/actions/workflows/ci.yml/badge.svg)](https://github.com/MkConan/UVCleaner/actions/workflows/ci.yml)
+[![Release](https://github.com/MkConan/UVCleaner/actions/workflows/release.yml/badge.svg)](https://github.com/MkConan/UVCleaner/releases/latest)
 
 Python プロジェクトの古い `.venv` を一括削除するターミナル UI ツールです。  
 `~/Development` 配下を再帰スキャンし、**30 日以上更新されていない仮想環境**を列挙。  
@@ -33,7 +33,7 @@ Python プロジェクトの古い `.venv` を一括削除するターミナル 
 
 ### バイナリをダウンロード（推奨）
 
-[Releases ページ](https://github.com/<YOUR_USERNAME>/UVCleaner/releases/latest) から OS に合ったアーカイブをダウンロードしてください。
+[Releases ページ](https://github.com/MkConan/UVCleaner/releases/latest) から OS に合ったアーカイブをダウンロードしてください。
 
 | ファイル | 対象 |
 |---|---|
@@ -45,7 +45,7 @@ Python プロジェクトの古い `.venv` を一括削除するターミナル 
 
 ```bash
 # 例: Apple Silicon
-curl -LO https://github.com/<YOUR_USERNAME>/UVCleaner/releases/latest/download/UVCleaner-macos-arm64.tar.gz
+curl -LO https://github.com/MkConan/UVCleaner/releases/latest/download/UVCleaner-macos-arm64.tar.gz
 tar -xzf UVCleaner-macos-arm64.tar.gz
 chmod +x UVCleaner
 sudo mv UVCleaner /usr/local/bin/
@@ -66,7 +66,7 @@ ZIP を展開し、`UVCleaner.exe` を任意のフォルダに配置してくだ
 Rust 1.85 以上が必要です。
 
 ```bash
-git clone https://github.com/<YOUR_USERNAME>/UVCleaner.git
+git clone https://github.com/MkConan/UVCleaner.git
 cd UVCleaner
 cargo build --release
 # ./target/release/UVCleaner に生成されます
