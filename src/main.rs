@@ -12,7 +12,7 @@ use crossterm::{
 };
 use ratatui::{Terminal, backend::CrosstermBackend};
 
-use scanner::{scan_projects, SCAN_DAYS};
+use scanner::{SCAN_DAYS, scan_projects};
 
 fn main() -> Result<(), io::Error> {
     let root = dirs_next::home_dir()
