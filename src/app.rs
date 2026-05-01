@@ -110,17 +110,13 @@ impl App {
                 self.suggestions = compute_suggestions(&self.input);
                 self.suggestion_index = None;
             }
-            KeyCode::Tab
-                if !self.suggestions.is_empty() =>
-            {
+            KeyCode::Tab if !self.suggestions.is_empty() => {
                 self.suggestion_index = Some(match self.suggestion_index {
                     None => 0,
                     Some(i) => (i + 1) % self.suggestions.len(),
                 });
             }
-            KeyCode::Down
-                if !self.suggestions.is_empty() =>
-            {
+            KeyCode::Down if !self.suggestions.is_empty() => {
                 self.suggestion_index = Some(match self.suggestion_index {
                     None => 0,
                     Some(i) => (i + 1).min(self.suggestions.len() - 1),
@@ -152,14 +148,10 @@ impl App {
                 self.input_mode = true;
             }
 
-            KeyCode::Down
-                if self.index + 1 < self.items.len() =>
-            {
+            KeyCode::Down if self.index + 1 < self.items.len() => {
                 self.index += 1;
             }
-            KeyCode::Up
-                if self.index > 0 =>
-            {
+            KeyCode::Up if self.index > 0 => {
                 self.index -= 1;
             }
 
@@ -178,15 +170,11 @@ impl App {
                 self.last_error = None;
             }
 
-            KeyCode::Char('d')
-                if self.selected_count() > 0 =>
-            {
+            KeyCode::Char('d') if self.selected_count() > 0 => {
                 self.confirm = true;
             }
 
-            KeyCode::Char('y')
-                if self.confirm =>
-            {
+            KeyCode::Char('y') if self.confirm => {
                 self.delete_selected();
                 self.confirm = false;
             }
