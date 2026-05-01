@@ -77,6 +77,6 @@ pub fn scan_projects(root: &Path, days: u64) -> Vec<Project> {
     }
 
     // 古い順（プロジェクト全体の最終更新日が古い順）にソート
-    projects.sort_by(|a, b| a.last_modified.cmp(&b.last_modified));
+    projects.sort_by_key(|a| a.last_modified);
     projects
 }
