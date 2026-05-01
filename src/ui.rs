@@ -166,12 +166,17 @@ fn render_suggestion_popup(f: &mut Frame, app: &App, input_area: Rect) {
         height: popup_height,
     };
 
-    let suggestion_items: Vec<ListItem> = app
-        .suggestions
+    // Calculate visible content lines (height - 2 for border/title)
+    let visible = (popup_height as usize).saturating_sub(2).max(1);
+    let start = app.suggestion_scroll_offset;
+    let end = (start + visible).min(app.suggestions.len());
+
+    let suggestion_items: Vec<ListItem> = app.suggestions[start..end]
         .iter()
         .enumerate()
-        .map(|(i, s)| {
-            let style = if Some(i) == app.suggestion_index {
+        .map(|(rel_i, s)| {
+            let abs_i = rel_i + start;
+            let style = if Some(abs_i) == app.suggestion_index {
                 Style::default()
                     .fg(Color::Black)
                     .bg(Color::Cyan)

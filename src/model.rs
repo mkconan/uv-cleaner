@@ -17,6 +17,7 @@ pub struct App {
     pub input_mode: bool,
     pub suggestions: Vec<String>,
     pub suggestion_index: Option<usize>,
+    pub suggestion_scroll_offset: usize,
     pub scroll_offset: usize,
     pub last_error: Option<String>,
 }

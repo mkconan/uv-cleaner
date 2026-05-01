@@ -35,7 +35,7 @@ pub fn compute_suggestions(input: &str) -> Vec<String> {
         .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
         .filter(|e| {
             let name = e.file_name().to_string_lossy().to_string();
-            name.starts_with(&prefix)
+            !name.starts_with('.') && name.starts_with(&prefix)
         })
         .map(|e| {
             let mut s = dir_to_list

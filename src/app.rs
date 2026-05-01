@@ -22,6 +22,7 @@ impl App {
             input_mode: false,
             suggestions: vec![],
             suggestion_index: None,
+            suggestion_scroll_offset: 0,
             scroll_offset: 0,
             last_error: None,
         }
@@ -93,6 +94,19 @@ impl App {
         }
     }
 
+    fn ensure_suggestion_visible(&mut self) {
+        let popup_height = (self.suggestions.len() as u16 + 2).min(10) as usize;
+        let visible = popup_height.saturating_sub(2).max(1);
+
+        if let Some(idx) = self.suggestion_index {
+            if idx < self.suggestion_scroll_offset {
+                self.suggestion_scroll_offset = idx;
+            } else if idx >= self.suggestion_scroll_offset + visible {
+                self.suggestion_scroll_offset = idx + 1 - visible;
+            }
+        }
+    }
+
     /// Returns `false` if the app should quit.
     fn handle_key_input_mode(&mut self, key: KeyCode) -> bool {
         match key {
@@ -102,6 +116,7 @@ impl App {
                         self.input = s.clone();
                         self.suggestions = compute_suggestions(&self.input);
                         self.suggestion_index = None;
+                        self.suggestion_scroll_offset = 0;
                     }
                 } else {
                     let path = PathBuf::from(&self.input);
@@ -114,6 +129,7 @@ impl App {
                             self.input_mode = false;
                             self.suggestions = vec![];
                             self.suggestion_index = None;
+                            self.suggestion_scroll_offset = 0;
                             self.last_error = None;
                         }
                         Err(e) => {
@@ -125,37 +141,47 @@ impl App {
             KeyCode::Esc => {
                 if self.suggestion_index.is_some() {
                     self.suggestion_index = None;
+                    self.suggestion_scroll_offset = 0;
                 } else {
                     self.input_mode = false;
                     self.suggestions = vec![];
+                    self.suggestion_scroll_offset = 0;
                 }
             }
             KeyCode::Backspace => {
                 self.input.pop();
                 self.suggestions = compute_suggestions(&self.input);
                 self.suggestion_index = None;
+                self.suggestion_scroll_offset = 0;
             }
             KeyCode::Tab if !self.suggestions.is_empty() => {
                 self.suggestion_index = Some(match self.suggestion_index {
                     None => 0,
                     Some(i) => (i + 1) % self.suggestions.len(),
                 });
+                self.ensure_suggestion_visible();
             }
             KeyCode::Down if !self.suggestions.is_empty() => {
                 self.suggestion_index = Some(match self.suggestion_index {
                     None => 0,
                     Some(i) => (i + 1).min(self.suggestions.len() - 1),
                 });
+                self.ensure_suggestion_visible();
             }
             KeyCode::Up => {
                 if let Some(i) = self.suggestion_index {
                     self.suggestion_index = if i == 0 { None } else { Some(i - 1) };
+                    self.suggestion_scroll_offset = 0;
+                } else {
+                    self.suggestion_index = None;
                 }
+                self.ensure_suggestion_visible();
             }
             KeyCode::Char(c) => {
                 self.input.push(c);
                 self.suggestions = compute_suggestions(&self.input);
                 self.suggestion_index = None;
+                self.suggestion_scroll_offset = 0;
             }
             _ => {}
         }
