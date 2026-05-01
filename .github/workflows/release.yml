@@ -1,0 +1,107 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+
+env:
+  CARGO_TERM_COLOR: always
+  BINARY_NAME: UVCleaner
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            archive: UVCleaner-macos-arm64.tar.gz
+
+          - target: x86_64-apple-darwin
+            os: macos-13
+            archive: UVCleaner-macos-x86_64.tar.gz
+
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+            archive: UVCleaner-linux-x86_64.tar.gz
+
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            archive: UVCleaner-windows-x86_64.zip
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install musl-tools (Linux only)
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-${{ matrix.target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.target }}-cargo-
+
+      - name: Build release binary
+        run: cargo build --release --target ${{ matrix.target }}
+
+      # ── macOS / Linux: tar.gz ──────────────────────────────────────────────
+      - name: Create archive (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          BINARY_PATH="target/${{ matrix.target }}/release/${{ env.BINARY_NAME }}"
+          tar -czf "${{ matrix.archive }}" -C "$(dirname "$BINARY_PATH")" "$(basename "$BINARY_PATH")"
+
+      # ── Windows: zip ────────────────────────────────────────────────────────
+      - name: Create archive (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $src = "target\${{ matrix.target }}\release\${{ env.BINARY_NAME }}.exe"
+          Compress-Archive -Path $src -DestinationPath "${{ matrix.archive }}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.archive }}
+          path: ${{ matrix.archive }}
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ github.ref_name }}
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          generate_release_notes: true
+          files: artifacts/*
