@@ -96,6 +96,7 @@ pub fn scan_projects(root: &Path, days: u64) -> ScannerResult<Vec<Project>> {
             let venv = project_dir.join(".venv");
 
             if venv.exists()
+                && !venv.is_symlink()
                 && let Ok(meta) = fs::metadata(&venv)
                 && let Ok(venv_mtime) = meta.modified()
                 && venv_mtime < threshold
