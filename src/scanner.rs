@@ -101,8 +101,13 @@ pub fn scan_projects(root: &Path, days: u64) -> ScannerResult<Vec<Project>> {
                 && let Ok(venv_mtime) = meta.modified()
                 && venv_mtime < threshold
             {
-                let venv_size = dir_size(&venv).unwrap_or(0);
+                // `.venv` 自体の mtime はパッケージ更新では変わらないことがあるため、
+                // プロジェクト内のファイル（.venv などを除く）の最終更新も閾値より古い場合だけ候補にする
                 let last_modified = project_last_modified(project_dir);
+                if last_modified >= threshold {
+                    continue;
+                }
+                let venv_size = dir_size(&venv).unwrap_or(0);
                 projects.push(Project {
                     path: project_dir.to_path_buf(),
                     venv_path: venv,

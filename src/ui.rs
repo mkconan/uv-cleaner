@@ -128,9 +128,8 @@ fn render_list(f: &mut Frame, app: &App, area: Rect) {
 }
 
 fn render_footer(f: &mut Frame, app: &App, area: Rect) {
-    let (text, style) = if let Some(ref err) = app.last_error {
-        (format!("Error: {}", err), Style::default().fg(Color::Red))
-    } else if app.confirm {
+    // 確認プロンプトはエラー表示より優先する（見えないまま y で削除されるのを防ぐ）
+    let (text, style) = if app.confirm {
         (
             format!(
                 "Delete {} items ({})? (y/n)",
@@ -139,6 +138,8 @@ fn render_footer(f: &mut Frame, app: &App, area: Rect) {
             ),
             Style::default(),
         )
+    } else if let Some(ref err) = app.last_error {
+        (format!("Error: {}", err), Style::default().fg(Color::Red))
     } else if app.input_mode {
         (
             "Type path  Tab/↓: next suggest  ↑: prev  Enter: apply/scan  Esc: cancel".to_string(),
