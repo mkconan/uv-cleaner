@@ -15,6 +15,7 @@ use ratatui::{Terminal, backend::CrosstermBackend};
 use scanner::{SCAN_DAYS, scan_projects};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // ホームディレクトリのDevelopmentフォルダをスキャン対象とする
     let root = dirs_next::home_dir()
         .ok_or("Could not determine home directory")?
         .join("Development");
@@ -23,12 +24,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("Warning: {} does not exist", root.display());
     }
 
+    // スキャンしてプロジェクト情報を取得
     let root_str = root.to_string_lossy().to_string();
     let projects = scan_projects(&root, SCAN_DAYS).unwrap_or_else(|e| {
         eprintln!("Scan error: {}", e);
         vec![]
     });
 
+    // TUIのセットアップ
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen)?;
@@ -37,6 +40,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     app::run_app(&mut terminal, projects, root_str)?;
 
+    // TUIのクリーンアップ
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
     terminal.show_cursor()?;

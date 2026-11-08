@@ -1,6 +1,6 @@
 use std::{fs, io, path::PathBuf, time::Duration};
 
-use crossterm::event::{self, Event, KeyCode};
+use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use ratatui::{Terminal, backend::CrosstermBackend};
 
 use crate::{
@@ -49,12 +49,14 @@ impl App {
                 match fs::remove_dir_all(&p.venv_path) {
                     Ok(_) => {
                         success_count += 1;
+                        false
                     }
+                    // 削除に失敗した項目はディスクに残っているので、一覧にも残す
                     Err(e) => {
                         errors.push((p.venv_path.display().to_string(), e.to_string()));
+                        true
                     }
                 }
-                false
             } else {
                 true
             }
@@ -222,6 +224,8 @@ impl App {
             }
 
             KeyCode::Char('d') if self.selected_count() > 0 => {
+                // 古いエラー表示で確認プロンプトが隠れないようにする
+                self.last_error = None;
                 self.confirm = true;
             }
 
@@ -252,7 +256,10 @@ pub fn run_app(
 
         if event::poll(Duration::from_millis(POLL_MS))?
             && let Event::Key(key) = event::read()?
+            // Windows では Press と Release の両方が届くため、Press だけを処理する
+            && key.kind == KeyEventKind::Press
         {
+            // キー入力に応じてアプリの状態を更新。`false`が返されたら終了。
             let cont = if app.input_mode {
                 app.handle_key_input_mode(key.code)
             } else {
@@ -263,7 +270,7 @@ pub fn run_app(
                 return Ok(());
             }
 
-            // Keep cursor within visible window after any movement
+            // カーソルが常に見えるようにスクロールオフセットを調整
             if let Ok(size) = terminal.size() {
                 let list_height = (size.height as usize).saturating_sub(6);
                 let visible = (list_height.saturating_sub(2) / 2).max(1);
